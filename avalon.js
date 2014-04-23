@@ -5,13 +5,13 @@
  http://weibo.com/jslouvre/
  
  Released under the MIT license
- avalon 1.2.5 2014.4.2
+ avalon 1.2.5 2014.4.15
  ==================================================*/
 (function(DOC) {
     var Registry = {} //将函数曝光到此对象上，方便访问器收集依赖
     var expose = new Date - 0
     var subscribers = "$" + expose
-    var window = this || (0, eval)('this')
+    var window = this || (0, eval)('this')//http://addyosmani.com/blog/understanding-mvvm-a-guide-for-javascript-developers/
     var otherRequire = window.require
     var otherDefine = window.define
     var stopRepeatAssign = false
@@ -184,7 +184,7 @@
     avalon.mix({
         rword: rword,
         subscribers: subscribers,
-        version: 1.25,
+        version: 1.26,
         ui: {},
         log: log,
         slice: W3C ? function(nodes, start, end) {
@@ -352,7 +352,7 @@
     var VMODELS = avalon.vmodels = {}
     avalon.define = function(id, factory) {
         if (VMODELS[id]) {
-            log("warning: "+id + " 已经存在于avalon.vmodels中")
+            log("warning: " + id + " 已经存在于avalon.vmodels中")
         }
         var scope = {
             $watch: noop
@@ -779,15 +779,15 @@
                         return i
                 return -1
             },
-            //迭代操作，将数组的元素挨个儿传入一个函数中执行。Ptototype.js的对应名字为each。
+            //迭代操作，将数组的元素挨个儿传入一个函数中执行。Prototype.js的对应名字为each。
             forEach: iterator("", '_', ""),
             //迭代类 在数组中的每个项上运行一个函数，如果此函数的值为真，则此元素作为新数组的元素收集起来，并返回新数组
             filter: iterator('r=[],j=0,', 'if(_)r[j++]=this[i]', 'return r'),
-            //收集操作，将数组的元素挨个儿传入一个函数中执行，然后把它们的返回值组成一个新数组返回。Ptototype.js的对应名字为collect。
+            //收集操作，将数组的元素挨个儿传入一个函数中执行，然后把它们的返回值组成一个新数组返回。Prototype.js的对应名字为collect。
             map: iterator('r=[],', 'r[i]=_', 'return r'),
-            //只要数组中有一个元素满足条件（放进给定函数返回true），那么它就返回true。Ptototype.js的对应名字为any。
+            //只要数组中有一个元素满足条件（放进给定函数返回true），那么它就返回true。Prototype.js的对应名字为any。
             some: iterator("", 'if(_)return true', 'return false'),
-            //只有数组中的元素都满足条件（放进给定函数返回true），它才返回true。Ptototype.js的对应名字为all。
+            //只有数组中的元素都满足条件（放进给定函数返回true），它才返回true。Prototype.js的对应名字为all。
             every: iterator("", 'if(!_)return false', 'return true')
         })
     }
@@ -1342,7 +1342,7 @@
         "option:get": function(node) {
             //在IE11及W3C，如果没有指定value，那么node.value默认为node.text（存在trim作），但IE9-10则是取innerHTML(没trim操作)
             if (node.hasAttribute) {
-                return node.hasAttribute("value") ? node.value : node.text
+                return node.hasAttribute("value") ? node.value : node.text.trim()
             }
             //specified并不可靠，因此通过分析outerHTML判定用户有没有显示定义value
             return roption.test(node.outerHTML) ? node.value : node.text
@@ -1630,23 +1630,28 @@
         scanAttr(elem, vmodels) //扫描特性节点
     }
 
-    function scanNodes(parent, vmodels) {
+    function  scanNodes(parent, vmodels) {
         var node = parent.firstChild
-
         while (node) {
             var nextNode = node.nextSibling
             if (node.nodeType === 1) {
-                scanTag(node, vmodels) //扫描元素节点
-            } else if (node.nodeType === 3 && rexpr.test(node.nodeValue)) {
-                scanText(node, vmodels) //扫描文本节点
+                scanTag(node, vmodels)
+            } else if (node.nodeType === 3) {
+                if (rexpr.test(node.data)) {
+                    scanText(node, node.data, vmodels)
+                }
+            } else if (node.nodeType === 8) {//在IE6-8里，如果插值表达式的界定符为<% %>，那么对应位置会变成
+                if (rexpr.test(node.innerHTML)) {//一个注释节点，见#346
+                    scanText(node, node.innerHTML, vmodels)
+                }
             }
             node = nextNode
         }
     }
 
-    function scanText(textNode, vmodels) {
+    function scanText(textNode, text, vmodels) {
         var bindings = [],
-                tokens = scanExpr(textNode.nodeValue)
+                tokens = scanExpr(text)
         if (tokens.length) {
             for (var i = 0, token; token = tokens[i++]; ) {
                 var node = DOC.createTextNode(token.value) //将文本转换为文本节点，并替换原来的文本节点
@@ -1684,9 +1689,10 @@
         "widget": 110,
         "each": 1400,
         "with": 1500,
-        "duplex": 2000
+        "duplex": 2000,
+        "on": 3000
     }
-
+    var ons = oneObject("animationend,blur,change,click,dblclick,focus,keydown,keypress,keyup,mousedown,mouseenter,mouseleave,mousemove,mouseout,mouseover,mouseup,scroll")
     function scanAttr(elem, vmodels) {
         var attributes = getAttributes ? getAttributes(elem) : elem.attributes
         var bindings = [],
@@ -1697,9 +1703,13 @@
                 if (match = attr.name.match(rmsAttr)) {
                     //如果是以指定前缀命名的
                     var type = match[1]
+                    var param = match[2] || ""
                     msData[attr.name] = attr.value
+                    if (ons[type]) {
+                        param = type
+                        type = "on"
+                    }
                     if (typeof bindingHandlers[type] === "function") {
-                        var param = match[2] || ""
                         var binding = {
                             type: type,
                             param: param,
@@ -1708,7 +1718,6 @@
                             value: attr.value,
                             priority: type in priorityMap ? priorityMap[type] : type.charCodeAt(0) * 10 + (Number(param) || 0)
                         }
-
                         if (type === "if" && param.indexOf("loop") > -1) {
                             binding.priority += 100
                         }
@@ -1737,7 +1746,7 @@
                 break
             default:
                 executeBindings(bindings, vmodels)
-                if (!stopScan[elem.tagName] && rbind.test(elem.innerHTML)) {
+                if (!stopScan[elem.tagName] && rbind.test(elem.innerHTML.replace(rlt, "<").replace(rgt, ">"))) {
                     scanNodes(elem, vmodels) //扫描子孙元素
                 }
                 break;
@@ -1798,7 +1807,9 @@
 
     var rfilters = /\|\s*(\w+)\s*(\([^)]*\))?/g,
             r11a = /\|\|/g,
-            r11b = /U2hvcnRDaXJjdWl0/g
+            r11b = /U2hvcnRDaXJjdWl0/g,
+            rlt = /&lt;/g,
+            rgt = /&gt;/g
 
     function scanExpr(str) {
         var tokens = [],
@@ -2693,7 +2704,6 @@
                 four = void 0
             }
             data.hasArgs = four
-            data.handlerName = data.type = "on"
             parseExprProxy(value, vmodels, data, four)
         },
         "visible": function(data, vmodels) {
@@ -2791,6 +2801,7 @@
         bindingHandlers[name] = bindingHandlers.attr
     })
     //============================= model binding =======================
+
     //将模型中的字段与input, textarea的value值关联在一起
     var modelBinding = bindingHandlers.duplex
     //如果一个input标签添加了model绑定。那么它对应的字段将与元素的value连结在一起
@@ -2800,8 +2811,8 @@
                 type = element.type,
                 callback = data.changed,
                 $elem = avalon(element),
-                removeFn,
-                eventArr
+                removeFn
+
 
         if (type === "checkbox" && fixType === "radio") {
             type = "radio"
@@ -2814,6 +2825,7 @@
                 callback.call(element, val)
             }
         }
+
         //当model变化时,它就会改变value的值
         data.handler = function() {
             var val = evaluator()
@@ -2842,9 +2854,10 @@
                     callback.call(element, val)
                 }
             }
-            removeFn = $elem.bind("click", updateVModel)
+            var eventType = fixType ? "click" : "mousedown"
+            removeFn = $elem.bind(eventType, updateVModel)
             data.rollback = function() {
-                $elem.unbind("click", removeFn)
+                $elem.unbind(eventType, removeFn)
             }
         } else if (type === "checkbox") {
             updateVModel = function() {
@@ -2863,9 +2876,10 @@
                 var array = [].concat(evaluator()) //强制转换为数组
                 element.checked = array.indexOf(element.value) >= 0
             }
-            removeFn = $elem.bind("click", updateVModel) //IE6-8
+            var eventType = W3C ? "change" : "click"
+            removeFn = $elem.bind(eventType, updateVModel) //IE6-8
             data.rollback = function() {
-                $elem.unbind("click", removeFn)
+                $elem.unbind(eventType, removeFn)
             }
         } else {
             var event = element.attributes["data-duplex-event"] || element.attributes["data-event"] || {}
@@ -2873,51 +2887,34 @@
             if (event === "change") {
                 avalon.bind(element, event, updateVModel)
             } else {
-                if (W3C) { //先执行W3C
+                if (W3C && DOC.documentMode !== 9) { //IE10+, W3C
                     element.addEventListener("input", updateVModel)
                     data.rollback = function() {
                         element.removeEventListener("input", updateVModel)
                     }
                 } else {
 
-                    eventArr = ["keydown","paste","cut","change"]
+                    var eventArr = ["keyup", "paste", "cut", "change"]
 
                     removeFn = function(e) {
                         var key = e.keyCode
-                        if (key === 91 || (15 < key && key < 19) || (37 <= key && key <= 40)) return
-                        avalon.nextTick(function(){
-                            updateVModel()
-                        })
+                        //    command            modifiers                   arrows
+                        if (key === 91 || (15 < key && key < 19) || (37 <= key && key <= 40))
+                            return
+                        updateVModel()
                     }
 
-                    avalon.each(eventArr ,function( i, name ){
-                        element.attachEvent( "on"+ name, removeFn)
+                    avalon.each(eventArr, function(i, name) {
+                        element.attachEvent("on" + name, removeFn)
                     })
-                    
+
                     data.rollback = function() {
-                        avalon.each( eventArr, function(i,name){
-                            element.detachEvent( "on"+ name, removeFn)
+                        avalon.each(eventArr, function(i, name) {
+                            element.detachEvent("on" + name, removeFn)
                         })
                     }
                 }
 
-                if (DOC.documentMode === 9) { // IE9 无法在切剪中同步VM
-                    var selectionchange = function(e) {
-                        if (e.type === "focus") {
-                            DOC.addEventListener("selectionchange", updateVModel)
-                        } else {
-                            DOC.removeEventListener("selectionchange", updateVModel)
-                        }
-                    }
-                    element.addEventListener("focus", selectionchange)
-                    element.addEventListener("blur", selectionchange)
-                    var rollback = data.rollback
-                    data.rollback = function() {
-                        rollback()
-                        element.removeEventListener("focus", selectionchange)
-                        element.removeEventListener("blur", selectionchange)
-                    }
-                }
             }
         }
         element.oldValue = element.value
@@ -3054,13 +3051,7 @@
         }
         return ret
     }
-    "animationend,blur,change,click,dblclick,focus,keydown,keypress,keyup,mousedown,mouseenter,mouseleave,mousemove,mouseout,mouseover,mouseup,scroll".
-            replace(rword, function(name) {
-                bindingHandlers[name] = function(data) {
-                    data.param = name
-                    bindingHandlers.on.apply(0, arguments)
-                }
-            })
+
     var oldBind = avalon.bind
     if (!("onmouseenter" in root)) { //fix firefox, chrome
         var events = {
@@ -3177,7 +3168,7 @@
             if (removed.length) {
                 ret = this._del(a, removed.length)
                 if (arguments.length <= 2) { //如果没有执行添加操作，需要手动resetIndex
-                    notifySubscribers(this, "index", a)
+                    notifySubscribers(this, "index", 0)
                 }
             }
             if (arguments.length > 2) {
@@ -3194,13 +3185,10 @@
             return this._.length
         },
         remove: function(el) { //移除第一个等于给定值的元素
-            var index = this.indexOf(el)
-            if (index >= 0) {
-                return this.removeAt(index)
-            }
+            return this.removeAt(this.indexOf(el))
         },
         removeAt: function(index) { //移除指定索引上的元素
-            this.splice(index, 1)
+            return this.splice(index, 1)
         },
         clear: function() {
             this.$model.length = this.length = this._.length = 0 //清空数组
@@ -3893,14 +3881,7 @@
             if (url === "ready!" || (modules[url] && modules[url].state === 2)) {
                 return url
             }
-            //2. 转化为完整路径
-            if (typeof kernel.shim[url] === "object") {
-                shim = kernel.shim[url]
-            }
-            if (kernel.paths[url]) { //别名机制
-                url = kernel.paths[url]
-            }
-            //3.  处理text!  css! 等资源
+            //2.  处理text!  css! 等资源
             var plugin
             url = url.replace(/^\w+!/, function(a) {
                 plugin = a.slice(0, -1)
@@ -3908,6 +3889,14 @@
             })
             plugin = plugin || "js"
             plugin = plugins[plugin] || noop
+            //3. 转化为完整路径
+            if (typeof kernel.shim[url] === "object") {
+                shim = kernel.shim[url]
+            }
+            if (kernel.paths[url]) { //别名机制
+                url = kernel.paths[url]
+            }
+
             //4. 补全路径
             if (/^(\w+)(\d)?:.*/.test(url)) {
                 ret = url
@@ -4045,7 +4034,7 @@
                 } catch (e) {
                 }
                 if (isCycle) {
-                    avalon.error(d + "模块与之前的某些模块存在循环依赖")
+                    avalon.error(d + "模块与之前的模块存在循环依赖，请不要直接用script标签引入" + d + "模块")
                 }
                 delete factory.delay //释放内存
                 innerRequire.apply(null, args) //0,1,2 --> 1,2,0
